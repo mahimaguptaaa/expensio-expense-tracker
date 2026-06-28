@@ -11,7 +11,7 @@ const MODEL = 'llama-3.3-70b-versatile'; // or 'mixtral-8x7b-32768', 'gemma2-9b-
 
 const getUserFinancialContext = async (userId) => {
   const now = new Date();
-  const [expenses, incomes, budgets] = await Promise.all([
+  const [expenses, incomes, budgets, user] = await Promise.all([
     prisma.expense.findMany({
       where: { userId, date: { gte: new Date(now.getFullYear(), now.getMonth() - 2, 1) } },
       orderBy: { date: 'desc' },
@@ -22,34 +22,40 @@ const getUserFinancialContext = async (userId) => {
     prisma.budget.findMany({
       where: { userId, month: now.getMonth() + 1, year: now.getFullYear() },
     }),
+    prisma.user.findUnique({ where: { id: userId }, select: { currency: true } }),
   ]);
 
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
   const totalIncome = incomes.reduce((s, i) => s + i.amount, 0);
   const byCategory = {};
   expenses.forEach(e => { byCategory[e.category] = (byCategory[e.category] || 0) + e.amount; });
+  const currency = user?.currency || 'USD';
 
-  return `User Financial Summary (Last 3 months):
-- Total Expenses: $${totalExpenses.toFixed(2)}
-- Total Income: $${totalIncome.toFixed(2)}
-- Savings: $${(totalIncome - totalExpenses).toFixed(2)}
+  return {
+    currency,
+    context: `User Financial Summary (Last 3 months):
+- Currency: ${currency} (ALWAYS use ${currency} symbol in your response, never use $ unless currency is USD)
+- Total Expenses: ${totalExpenses.toFixed(2)} ${currency}
+- Total Income: ${totalIncome.toFixed(2)} ${currency}
+- Savings: ${(totalIncome - totalExpenses).toFixed(2)} ${currency}
 - Transactions: ${expenses.length}
 - By category: ${JSON.stringify(byCategory)}
-- Budgets: ${JSON.stringify(budgets.map(b => ({ category: b.category, budget: b.amount })))}`;
+- Budgets: ${JSON.stringify(budgets.map(b => ({ category: b.category, budget: b.amount })))}`,
+  };
 };
 
 const chat = async (req, res, next) => {
   try {
     const { message, history = [] } = req.body;
     const groq = getGroq();
-    const financialContext = await getUserFinancialContext(req.user.id);
+    const { currency, context: financialContext } = await getUserFinancialContext(req.user.id);
 
     const messages = [
       {
         role: 'system',
         content: `You are Expensio AI, a smart personal finance assistant. Be helpful, friendly, and concise (2-4 paragraphs max).
 Here is the user's financial data:\n${financialContext}
-Provide personalized advice based on their actual numbers.`,
+IMPORTANT: The user's currency is ${currency}. Always use ${currency} when mentioning any monetary values. Never use a different currency symbol.`,
       },
       ...history.slice(-10).map(h => ({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.content })),
       { role: 'user', content: message },
