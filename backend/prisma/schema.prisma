@@ -1,0 +1,177 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String    @id @default(uuid())
+  email            String    @unique
+  password         String
+  name             String
+  avatar           String?
+  currency         String    @default("USD")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  expenses         Expense[]
+  incomes          Income[]
+  budgets          Budget[]
+  groupMembers     GroupMember[]
+  groupExpenses    GroupExpense[]
+  paidExpenses     GroupExpenseSplit[] @relation("Payer")
+  owedSplits       GroupExpenseSplit[] @relation("Debtor")
+  settlements      Settlement[]        @relation("Settler")
+  receivedSettlements Settlement[]     @relation("Receiver")
+  chatMessages     ChatMessage[]
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  title       String
+  amount      Float
+  category    String
+  date        DateTime
+  notes       String?
+  receipt     String?
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([date])
+  @@index([category])
+}
+
+model Income {
+  id        String   @id @default(uuid())
+  title     String
+  amount    Float
+  category  String
+  date      DateTime
+  notes     String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([date])
+}
+
+model Budget {
+  id        String   @id @default(uuid())
+  category  String
+  amount    Float
+  month     Int
+  year      Int
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, category, month, year])
+  @@index([userId])
+}
+
+model Group {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  avatar      String?
+  createdBy   String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  members     GroupMember[]
+  expenses    GroupExpense[]
+  settlements Settlement[]
+}
+
+model GroupMember {
+  id       String   @id @default(uuid())
+  groupId  String
+  userId   String
+  role     String   @default("member")
+  joinedAt DateTime @default(now())
+
+  group    Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+}
+
+model GroupExpense {
+  id          String               @id @default(uuid())
+  title       String
+  amount      Float
+  category    String               @default("General")
+  date        DateTime
+  notes       String?
+  receipt     String?
+  splitType   String               @default("equal")
+  groupId     String
+  paidById    String
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  group       Group                @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  paidBy      User                 @relation(fields: [paidById], references: [id])
+  splits      GroupExpenseSplit[]
+
+  @@index([groupId])
+  @@index([paidById])
+}
+
+model GroupExpenseSplit {
+  id            String       @id @default(uuid())
+  expenseId     String
+  payerId       String
+  debtorId      String
+  amount        Float
+  percentage    Float?
+  settled       Boolean      @default(false)
+  settledAt     DateTime?
+
+  expense       GroupExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  payer         User         @relation("Payer", fields: [payerId], references: [id])
+  debtor        User         @relation("Debtor", fields: [debtorId], references: [id])
+
+  @@index([expenseId])
+  @@index([payerId])
+  @@index([debtorId])
+}
+
+model Settlement {
+  id         String   @id @default(uuid())
+  groupId    String
+  fromUserId String
+  toUserId   String
+  amount     Float
+  note       String?
+  createdAt  DateTime @default(now())
+
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  fromUser   User     @relation("Settler", fields: [fromUserId], references: [id])
+  toUser     User     @relation("Receiver", fields: [toUserId], references: [id])
+
+  @@index([groupId])
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  userId    String
+  role      String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
